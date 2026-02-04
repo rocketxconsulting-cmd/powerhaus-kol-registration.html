@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PowerHaus Pilates - KOL Registration</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Prompt', sans-serif; }
+    .checkbox-custom:checked { background-color: #2563EB; border-color: #2563EB; }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
+  <div id="app" class="p-4 md:p-6">
+    <!-- Content will be rendered by JavaScript -->
+  </div>
+
+  <script>
+    // ============================================
+    // Configuration
+    // ============================================
+    
+    // Google Apps Script URL - เปลี่ยนเป็น URL ของคุณ
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzBdAIEG8RxZU3Ck02E4ypnDXDJtfIn_qXfOoUNwiDvs4BXPBwcvQrsHtWDA_-COQjD6Q/exec";
+    
+    // จำกัด KOL ต่อคลาส
+    const MAX_KOL_PER_CLASS = 2;
+
+    // ============================================
+    // Class Data
+    // ============================================
+    
+    const morningClasses = [
+      { id: 'morning_0800_reformer', time: '08:00 - 08:50', type: 'REFORMER', capacity: 6 },
+      { id: 'morning_0900_reformer', time: '09:00 - 09:50', type: 'REFORMER', capacity: 6 },
+      { id: 'morning_0900_barre', time: '09:00 - 09:50', type: 'POWER BARRE', capacity: 8 },
+      { id: 'morning_1000_mat', time: '10:00 - 10:50', type: 'MAT & Dumbbells', capacity: 8 },
+      { id: 'morning_1000_reformer', time: '10:00 - 10:50', type: 'REFORMER', capacity: 6 },
+      { id: 'morning_1100_motr', time: '11:00 - 11:50', type: 'MOTR', capacity: 4 },
+      { id: 'morning_1100_reformer', time: '11:00 - 11:50', type: 'REFORMER', capacity: 6 }
+    ];
+
+    const afternoonClasses = [
+      { id: 'afternoon_1400_reformer', time: '14:00 - 14:50', type: 'REFORMER', capacity: 6 },
+      { id: 'afternoon_1400_mat', time: '14:00 - 14:50', type: 'Mat with Dumbbells', capacity: 8 },
+      { id: 'afternoon_1500_reformer', time: '15:00 - 15:50', type: 'REFORMER', capacity: 6 },
+      { id: 'afternoon_1600_reformer', time: '16:00 - 16:50', type: 'REFORMER', capacity: 6 },
+      { id: 'afternoon_1700_reformer', time: '17:00 - 17:50', type: 'REFORMER', capacity: 6 },
+      { id: 'afternoon_1800_reformer', time: '18:00 - 18:50', type: 'REFORMER', capacity: 6 },
+      { id: 'afternoon_1800_barre', time: '18:00 - 18:50', type: 'Power Barre', capacity: 8 },
+      { id: 'afternoon_1900_reformer', time: '19:00 - 19:50', type: 'REFORMER', capacity: 6 },
+      { id: 'afternoon_1900_motr', time: '19:00 - 19:50', type: 'MOTR', capacity: 4 }
+    ];
+
+    // ============================================
+    // State Management
+    // ============================================
+    
+    let formData = {
+      kolName: '',
+      lineId: '',
+      phone: '',
+      hasFacebook: false,
+      facebookUrl: '',
+      hasInstagram: false,
+      instagramUrl: '',
+      hasTiktok: false,
+      tiktokUrl: '',
+      selectedMorningClasses: [],
+      selectedAfternoonClasses: [],
+      agreeTerms: false,
+      agreeContent: false,
+      agreeHashtag: false
+    };
+
+    // จำนวน KOL ที่ลงทะเบียนแต่ละคลาส (ดึงจาก Google Sheet)
+    let classSlots = {};
+    
+    let isSubmitting = false;
+    let isSubmitted = false;
+    let isLoading = true;
+
+    // ============================================
+    // Google Sheets Integration
+    // ============================================
+    
+    async function loadClassSlots() {
+      try {
+        // ดึงข้อมูลจำนวน KOL ต่อคลาสจาก Google Sheet
+        const response = await fetch(GOOGLE_SCRIPT_URL + '?action=getSlots');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.slots) {
+            classSlots = data.slots;
+          }
+        }
+      } catch (error) {
+        console.log('Could not load slots, using defaults');
+      }
+      isLoading = false;
+      render();
+    }
+
+    async function submitForm() {
+      if (isSubmitting) return;
+      
+      // Validation
+      if (!formData.kolName || !formData.lineId) {
+        alert('กรุณากรอกชื่อ-นามสกุล และ LINE ID');
+        return;
+      }
+
+      const totalClasses = formData.selectedMorningClasses.length + formData.selectedAfternoonClasses.length;
+      if (totalClasses === 0) {
+        alert('กรุณาเลือกคลาสอย่างน้อย 1 คลาส');
+        return;
+      }
+
+      if (!formData.hasFacebook && !formData.hasInstagram && !formData.hasTiktok) {
+        alert('กรุณาระบุช่องทาง Social Media อย่างน้อย 1 ช่องทาง');
+        return;
+      }
+      
+      if (!formData.agreeTerms || !formData.agreeContent || !formData.agreeHashtag) {
+        alert('กรุณายอมรับเงื่อนไขทั้งหมด');
+        return;
+      }
+
+      isSubmitting = true;
+      render();
+
+      // Prepare data
+      const selectedMorningClassNames = formData.selectedMorningClasses.map(id => {
+        const cls = morningClasses.find(c => c.id === id);
+        return cls ? `${cls.time} | ${cls.type}` : '';
+      }).join(', ');
+
+      const selectedAfternoonClassNames = formData.selectedAfternoonClasses.map(id => {
+        const cls = afternoonClasses.find(c => c.id === id);
+        return cls ? `${cls.time} | ${cls.type}` : '';
+      }).join(', ');
+
+      const socialChannels = [
+        formData.hasFacebook && 'Facebook',
+        formData.hasInstagram && 'Instagram',
+        formData.hasTiktok && 'TikTok'
+      ].filter(Boolean).join(', ');
+
+      const dataToSubmit = {
+        timestamp: new Date().toISOString(),
+        name: formData.kolName,
+        lineId: formData.lineId,
+        phone: formData.phone || '-',
+        socialChannels: socialChannels,
+        facebook: formData.hasFacebook ? formData.facebookUrl : '-',
+        instagram: formData.hasInstagram ? formData.instagramUrl : '-',
+        tiktok: formData.hasTiktok ? formData.tiktokUrl : '-',
+        morningClasses: selectedMorningClassNames || '-',
+        afternoonClasses: selectedAfternoonClassNames || '-',
+        totalClasses: totalClasses,
+        selectedClassIds: [...formData.selectedMorningClasses, ...formData.selectedAfternoonClasses].join(',')
+      };
+
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSubmit)
+        });
+        
+        isSubmitted = true;
+      } catch (error) {
+        console.error('Error:', error);
+        isSubmitted = true;
+      }
+
+      isSubmitting = false;
+      render();
+    }
+
+    // ============================================
+    // UI Helpers
+    // ============================================
+    
+    function getAvailableSlots(classId) {
+      const used = classSlots[classId] || 0;
+      return MAX_KOL_PER_CLASS - used;
+    }
+
+    function isClassFull(classId) {
+      return getAvailableSlots(classId) <= 0;
+    }
+
+    function toggleMorningClass(classId) {
+      const isSelected = formData.selectedMorningClasses.includes(classId);
+      if (!isSelected && isClassFull(classId)) return;
+      
+      if (isSelected) {
+        formData.selectedMorningClasses = formData.selectedMorningClasses.filter(id => id !== classId);
+      } else {
+        formData.selectedMorningClasses.push(classId);
+      }
+      render();
+    }
+
+    function toggleAfternoonClass(classId) {
+      const isSelected = formData.selectedAfternoonClasses.includes(classId);
+      if (!isSelected && isClassFull(classId)) return;
+      
+      if (isSelected) {
+        formData.selectedAfternoonClasses = formData.selectedAfternoonClasses.filter(id => id !== classId);
+      } else {
+        formData.selectedAfternoonClasses.push(classId);
+      }
+      render();
+    }
+
+    // ============================================
+    // Render Functions
+    // ============================================
+    
+    function renderClassCard(classInfo, isSelected, isMorning) {
+      const available = getAvailableSlots(classInfo.id);
+      const isFull = available <= 0;
+      const toggleFn = isMorning ? 'toggleMorningClass' : 'toggleAfternoonClass';
+      
+      const bgClass = isSelected 
+        ? 'border-blue-500 bg-blue-50' 
+        : isFull 
+          ? 'border-gray-200 bg-gray-100 cursor-not-allowed opacity-60' 
+          : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50 cursor-pointer';
+      
+      const statusClass = isFull 
+        ? 'bg-red-100 text-red-600' 
+        : 'bg-green-100 text-green-600';
+      
+      const statusText = isFull ? 'เต็ม' : `ว่าง ${available}/${MAX_KOL_PER_CLASS}`;
+
+      return `
+        <div onclick="${!isFull || isSelected ? toggleFn + '(\'' + classInfo.id + '\')' : ''}" 
+             class="p-3 rounded-lg border-2 transition-all ${bgClass}">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <input type="checkbox" ${isSelected ? 'checked' : ''} ${isFull && !isSelected ? 'disabled' : ''}
+                     class="w-5 h-5 text-blue-600 rounded pointer-events-none">
+              <div>
+                <p class="font-semibold text-gray-800">${classInfo.time}</p>
+                <p class="text-sm text-gray-600">${classInfo.type} (${classInfo.capacity} คน)</p>
+              </div>
+            </div>
+            <span class="text-xs px-2 py-1 rounded-full ${statusClass}">${statusText}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSocialMedia(platform, icon, stateKey, urlKey) {
+      const isChecked = formData[stateKey];
+      const borderClass = isChecked ? 'border-blue-400 bg-blue-50' : 'border-gray-200';
+      
+      return `
+        <div class="p-4 rounded-lg border-2 transition-all ${borderClass}">
+          <label class="flex items-center gap-3 cursor-pointer mb-3">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} 
+                   onchange="formData.${stateKey} = this.checked; render()"
+                   class="w-5 h-5 text-blue-600 rounded">
+            <span class="text-2xl">${icon}</span>
+            <span class="font-semibold text-gray-800">${platform}</span>
+          </label>
+          ${isChecked ? `
+            <div class="ml-8">
+              <input type="text" value="${formData[urlKey]}" 
+                     oninput="formData.${urlKey} = this.value"
+                     placeholder="${platform} Username / URL"
+                     class="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderSuccessPage() {
+      const channels = [
+        formData.hasFacebook && 'Facebook',
+        formData.hasInstagram && 'Instagram',
+        formData.hasTiktok && 'TikTok'
+      ].filter(Boolean).join(', ');
+      
+      const totalClasses = formData.selectedMorningClasses.length + formData.selectedAfternoonClasses.length;
+
+      return `
+        <div class="max-w-md mx-auto">
+          <div class="bg-white rounded-2xl shadow-xl p-8 text-center">
+            <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg class="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">ลงทะเบียนสำเร็จ!</h2>
+            <p class="text-gray-600 mb-4">ขอบคุณที่ลงทะเบียนร่วมงาน PowerHaus Pilates Grand Opening</p>
+            <div class="bg-gray-50 rounded-lg p-4 text-left mb-6">
+              <p class="text-sm text-gray-600"><strong>ชื่อ:</strong> ${formData.kolName}</p>
+              <p class="text-sm text-gray-600"><strong>LINE ID:</strong> ${formData.lineId}</p>
+              <p class="text-sm text-gray-600"><strong>ช่องทาง:</strong> ${channels}</p>
+              <p class="text-sm text-gray-600"><strong>คลาสที่เลือก:</strong> ${totalClasses} คลาส</p>
+            </div>
+            <p class="text-sm text-gray-500">ทีมงานจะติดต่อกลับทาง LINE เพื่อยืนยันการจองคลาส</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function render() {
+      const app = document.getElementById('app');
+      
+      if (isSubmitted) {
+        app.innerHTML = renderSuccessPage();
+        return;
+      }
+
+      const totalSelected = formData.selectedMorningClasses.length + formData.selectedAfternoonClasses.length;
+
+      app.innerHTML = `
+        <div class="max-w-3xl mx-auto">
+          <!-- Header -->
+          <div class="text-center mb-8">
+            <p class="text-sm text-gray-500 mb-2">THE BACKYARD</p>
+            <h1 class="text-3xl font-bold text-blue-600 mb-1">PowerHaus</h1>
+            <p class="text-xl text-amber-500 italic mb-4">Pilates</p>
+            <div class="inline-block bg-white rounded-full px-6 py-2 shadow-md">
+              <p class="text-gray-700 font-semibold">🎉 Grand Opening Event</p>
+              <p class="text-sm text-gray-500">14 February 2026</p>
+            </div>
+          </div>
+
+          ${isLoading ? `
+            <div class="bg-white rounded-2xl shadow-xl p-8 text-center">
+              <div class="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p class="text-gray-600">กำลังโหลดข้อมูล...</p>
+            </div>
+          ` : `
+          <!-- Form -->
+          <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-6 pb-4 border-b">
+              📝 KOL Class Registration Form
+            </h2>
+
+            <!-- Personal Info -->
+            <div class="mb-6">
+              <label class="block text-sm font-semibold text-gray-700 mb-2">
+                ชื่อ-นามสกุล <span class="text-red-500">*</span>
+              </label>
+              <input type="text" value="${formData.kolName}" 
+                     oninput="formData.kolName = this.value"
+                     class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                     placeholder="กรอกชื่อ-นามสกุล">
+            </div>
+
+            <!-- Contact Info -->
+            <div class="grid md:grid-cols-2 gap-4 mb-6">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                  LINE ID <span class="text-red-500">*</span>
+                </label>
+                <input type="text" value="${formData.lineId}"
+                       oninput="formData.lineId = this.value"
+                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="กรอก LINE ID">
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">เบอร์โทรศัพท์</label>
+                <input type="tel" value="${formData.phone}"
+                       oninput="formData.phone = this.value"
+                       class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                       placeholder="0XX-XXX-XXXX">
+              </div>
+            </div>
+
+            <!-- Social Media -->
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold text-gray-800 mb-2">
+                📱 ช่องทาง Social Media <span class="text-red-500">*</span>
+              </h3>
+              <p class="text-sm text-gray-500 mb-4">เลือกช่องทางที่จะโพสต์ Content และระบุ Username</p>
+              <div class="space-y-3">
+                ${renderSocialMedia('Facebook', '📘', 'hasFacebook', 'facebookUrl')}
+                ${renderSocialMedia('Instagram', '📸', 'hasInstagram', 'instagramUrl')}
+                ${renderSocialMedia('TikTok', '🎵', 'hasTiktok', 'tiktokUrl')}
+              </div>
+            </div>
+
+            <!-- Morning Classes -->
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                🌅 Morning Classes
+                <span class="text-xs font-normal text-gray-500">(จำกัด ${MAX_KOL_PER_CLASS} KOL ต่อคลาส)</span>
+              </h3>
+              <div class="grid gap-3">
+                ${morningClasses.map(c => renderClassCard(c, formData.selectedMorningClasses.includes(c.id), true)).join('')}
+              </div>
+            </div>
+
+            <!-- Afternoon Classes -->
+            <div class="mb-6">
+              <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                🌆 Afternoon Classes
+                <span class="text-xs font-normal text-gray-500">(จำกัด ${MAX_KOL_PER_CLASS} KOL ต่อคลาส)</span>
+              </h3>
+              <div class="grid gap-3">
+                ${afternoonClasses.map(c => renderClassCard(c, formData.selectedAfternoonClasses.includes(c.id), false)).join('')}
+              </div>
+            </div>
+
+            <!-- Selected Summary -->
+            ${totalSelected > 0 ? `
+              <div class="mb-6 p-4 bg-blue-50 rounded-lg">
+                <p class="text-sm font-semibold text-blue-800">
+                  คลาสที่เลือก: ${totalSelected} คลาส
+                </p>
+              </div>
+            ` : ''}
+
+            <!-- Terms -->
+            <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+              <h3 class="text-lg font-semibold text-gray-800 mb-4">📋 เงื่อนไขการเข้าร่วม</h3>
+              <div class="space-y-3">
+                <label class="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" ${formData.agreeTerms ? 'checked' : ''}
+                         onchange="formData.agreeTerms = this.checked; render()"
+                         class="w-5 h-5 mt-0.5 text-blue-600 rounded">
+                  <span class="text-sm text-gray-700">
+                    ยินยอมเข้าร่วม Pilates Group Class ตามเวลาที่เลือก และจะมาถึงก่อนเวลาคลาสอย่างน้อย 15 นาที
+                  </span>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" ${formData.agreeHashtag ? 'checked' : ''}
+                         onchange="formData.agreeHashtag = this.checked; render()"
+                         class="w-5 h-5 mt-0.5 text-blue-600 rounded">
+                  <span class="text-sm text-gray-700">
+                    ยินยอมโพสต์บน Social Media (IG/FB/TikTok) พร้อมใช้ hashtag <strong>#POWERHAUSBACKYARD</strong>
+                  </span>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" ${formData.agreeContent ? 'checked' : ''}
+                         onchange="formData.agreeContent = this.checked; render()"
+                         class="w-5 h-5 mt-0.5 text-blue-600 rounded">
+                  <span class="text-sm text-gray-700">
+                    ยินยอมส่ง Content ให้ทีม Marketing <strong>ภายใน 3-7 วันหลังงาน</strong> และยินยอมให้ PowerHaus Pilates นำ Content ไปใช้ในการโปรโมท
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Welcome Pack -->
+            <div class="mb-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
+              <h3 class="text-sm font-semibold text-amber-800 mb-2">🎁 Welcome Pack สำหรับ KOL</h3>
+              <p class="text-xs text-amber-700">
+                Matcha Earl Grey by Wyn & Timm • Minimal Coffee Coupon • Watsons Coupon • Lotus Coupon • Farmer Union Yogurt • และอื่นๆ
+              </p>
+            </div>
+
+            <!-- Submit -->
+            <button onclick="submitForm()" ${isSubmitting ? 'disabled' : ''}
+                    class="w-full font-semibold py-4 px-6 rounded-lg transition-colors shadow-lg hover:shadow-xl ${isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}">
+              ${isSubmitting ? 'กำลังส่งข้อมูล...' : 'ยืนยันการลงทะเบียน'}
+            </button>
+
+            <p class="text-xs text-gray-500 text-center mt-4">
+              หลังจากลงทะเบียน ทีมงานจะติดต่อกลับทาง LINE เพื่อยืนยันการจองคลาส
+            </p>
+          </div>
+          `}
+
+          <!-- Footer -->
+          <div class="text-center mt-6 text-sm text-gray-500">
+            <p>PowerHaus Pilates @ The Backyard, Chiang Mai</p>
+            <p>📍 Ornrin, Chiang Mai</p>
+          </div>
+        </div>
+      `;
+    }
+
+    // ============================================
+    // Initialize
+    // ============================================
+    
+    // Initial render
+    render();
+    
+    // Load slot data from Google Sheet
+    loadClassSlots();
+  </script>
+</body>
+</html>
